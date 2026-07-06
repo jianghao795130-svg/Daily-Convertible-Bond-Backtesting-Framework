@@ -1,87 +1,237 @@
 # Daily Convertible Bond Backtesting Framework
 
-一个基于 Python 的可转债事件驱动回测框架，当前版本主要用于复现和扩展早盘可转债盘中因子/择时策略。
+An event-driven backtesting framework for convertible bonds, focused on intraday signal generation, candidate selection, and reproducible research workflows.
 
-这个仓库保存的是“代码和文档版本”，不包含本地行情数据、缓存结果和回测产物。
+This project is built around a real working research pipeline rather than a toy demo. It converts raw market data into standardized events, computes factors, selects tradable bonds, replays intraday bars, and generates complete backtest reports.
 
-## 项目特点
+## Overview
 
-- 事件驱动架构：统一使用 `Bar / Signal / Order / Fill` 事件流组织回测。
-- 五步流水线：数据整理、因子计算、选债、盘中交易、结果生成。
-- 支持分钟数据回放，也支持把分钟数据展开为 synthetic tick 事件。
-- 内置可转债因子策略、盘中趋势策略和调仓策略。
-- 当前版本已改为“信号在下一根 K 线成交”：
-  - 当前 bar 收完后只生成并挂起信号
-  - 到下一根 bar 到来时再执行买卖
-  - 默认按下一根 bar 的开盘价撮合
+The framework is designed for early-session convertible bond trading research. The current default setup uses minute bars as the raw input, with optional synthetic tick expansion for finer event replay.
 
-## 目录结构
+At a high level, the strategy flow is:
 
-- `cb_backtest/`
-  回测核心框架，包含数据适配、事件定义、Broker、引擎、策略和报告模块。
-- `program/`
-  分步流水线脚本。
-- `docs/`
-  项目说明、配置示例和流程文档。
-- `config.py`
-  当前默认回测配置。
-- `run_backtest.py`
-  一键运行 1~5 步主流程。
+1. Load and clean raw market data
+2. Convert data into standardized event bars
+3. Compute factor values on each event
+4. Build daily candidate lists
+5. Replay intraday events and generate signals
+6. Execute trades on the next bar
+7. Export fills, equity curve, and summary reports
 
-## 回测流程
+## Current Trading Logic
 
-1. `step1_整理数据`
-   读取原始行情，清洗并整理为标准事件缓存。
-2. `step2_计算因子`
-   对事件缓存逐条计算并保存因子。
-3. `step3_选债`
-   按配置生成每日候选标的。
-4. `step4_盘中择时交易`
-   回放候选标的的盘中事件并生成成交。
-5. `step5_生成回测结果`
-   输出成交记录、资金曲线、汇总指标和图表。
+The repository currently includes a factor-driven intraday convertible bond workflow centered on:
 
-## 当前默认配置
+- factor filters
+- candidate selection
+- intraday timing signals
+- event-driven execution
+- position sizing by liquidity tier
 
-`config.py` 里的默认参数目前是：
+The latest execution model is:
 
-- 回测区间：`2023-01-01` 到 `2025-03-01`
-- 行情频率：`minute`
-- `synthetic_tick_seconds = 60`
-- 默认账户资金：`1_000_000`
+- signals are generated only after the current bar is fully known
+- buy and sell orders are not filled on the same bar
+- all signals are queued and executed on the next available bar
+- the default execution price is the next bar open
 
-这意味着当前默认最小回放粒度仍然是 1 分钟事件；如果要模拟更细的事件节奏，可以把 `synthetic_tick_seconds` 调小。
+This makes the replay logic more realistic than same-bar fills and better matches how a live signal would actually be tradable.
 
-## 快速开始
+## Project Structure
 
-1. 准备你自己的可转债行情数据，并在 `config.py` 中修改 `data_path`
-2. 按需要修改策略参数、回测区间和输出目录
-3. 运行：
+```text
+.
+├─ cb_backtest/
+│  ├─ broker.py
+│  ├─ data.py
+│  ├─ engine.py
+│  ├─ events.py
+│  ├─ factor_config.py
+│  ├─ report.py
+│  ├─ factors/
+│  └─ strategies/
+├─ program/
+│  ├─ common.py
+│  ├─ step1_整理数据.py
+│  ├─ step2_计算因子.py
+│  ├─ step3_选债.py
+│  ├─ step4_盘中择时交易.py
+│  ├─ step5_生成回测结果.py
+│  └─ step6_检查资金曲线异常（可选）.py
+├─ docs/
+├─ config.py
+└─ run_backtest.py
+```
+
+## Pipeline
+
+### Step 1. Data Preparation
+
+`program/step1_整理数据.py`
+
+- loads raw market files
+- normalizes schema
+- filters dates and symbols
+- sorts bars
+- expands minute bars into synthetic ticks when needed
+- saves standardized event caches
+
+### Step 2. Factor Calculation
+
+`program/step2_计算因子.py`
+
+- replays standardized events
+- calculates factor values bar by bar
+- stores factor caches for later selection and trading
+
+### Step 3. Daily Selection
+
+`program/step3_选债.py`
+
+- reads factor caches
+- applies ranking and filtering rules
+- generates daily candidate bond lists
+
+### Step 4. Intraday Trading Replay
+
+`program/step4_盘中择时交易.py`
+
+- replays only selected instruments
+- evaluates timing signals intraday
+- queues signals on the current bar
+- executes them on the next bar
+- writes fills and equity artifacts
+
+### Step 5. Report Generation
+
+`program/step5_生成回测结果.py`
+
+- reads fills and account curve
+- computes summary statistics
+- exports tables and charts
+
+### Optional Step 6. Equity Curve Diagnostics
+
+`program/step6_检查资金曲线异常（可选）.py`
+
+- checks for unusual jumps
+- helps debug replay or execution issues
+
+## Core Modules
+
+### `cb_backtest/events.py`
+
+Defines the core event objects:
+
+- `MarketEvent`
+- `SignalEvent`
+- `OrderEvent`
+- `FillEvent`
+- `Bar`
+
+### `cb_backtest/data.py`
+
+Handles market data loading and conversion between raw files and replayable bar events.
+
+### `cb_backtest/broker.py`
+
+Responsible for:
+
+- translating target-position signals into orders
+- handling commissions and slippage
+- updating cash and positions
+- filling queued orders on the next bar
+
+### `cb_backtest/engine.py`
+
+The main event-driven backtest engine. It wires together:
+
+- data replay
+- factor updates
+- strategy evaluation
+- pending signal execution
+- reporting
+
+### `cb_backtest/strategies/`
+
+Contains reusable strategy implementations, including:
+
+- `factor_event_strategy.py`
+- `intraday_cb_trend.py`
+- `rank_rebalance.py`
+
+## Configuration
+
+The default configuration lives in `config.py`.
+
+Key fields include:
+
+- `backtest_name`
+- `start_date`
+- `end_date`
+- `frequency`
+- `data_path`
+- `output_dir`
+- `pipeline_root_dir`
+- `synthetic_tick_seconds`
+- `strategy_list`
+- `initial_cash`
+- `commission_rate`
+
+Default runtime behavior in the current config:
+
+- raw input frequency: `minute`
+- synthetic event spacing: `60` seconds
+- initial cash: `1_000_000`
+
+That means the current default replay granularity is effectively one event per minute unless you reduce `synthetic_tick_seconds`.
+
+## How To Run
+
+Run the full workflow:
 
 ```bash
 python run_backtest.py -c config.py
 ```
 
-如果只想单独执行某一步，也可以直接运行 `program/` 目录下对应脚本。
+Run individual steps:
 
-## 数据说明
+```bash
+python program/step1_整理数据.py -c config.py
+python program/step2_计算因子.py -c config.py
+python program/step3_选债.py -c config.py
+python program/step4_盘中择时交易.py -c config.py
+python program/step5_生成回测结果.py -c config.py
+```
 
-- 本仓库不会上传 `data/` 目录
-- 本仓库不会上传本地缓存、回测结果和原始行情文件
-- 你需要在本地自行准备数据，并通过 `config.py` 指向实际路径
+## Data Policy
 
-## 文档
+This repository does not include:
+
+- raw market data
+- local pipeline cache
+- generated backtest results
+- local IDE files
+- Python cache files
+
+The `data/` directory is intentionally excluded from version control.
+
+## Documentation
+
+Additional notes are available in:
 
 - `docs/框架逻辑及策略说明.md`
 - `docs/项目文件结构说明.md`
 - `docs/Step1_整理数据详细说明.md`
 - `docs/config配置示例.py`
 
-## 说明
+## Status
 
-这个仓库当前更偏向“可复现、可迭代的研究框架”，而不是已经完全产品化的通用回测平台。后续如果继续扩展，可以优先完善：
+This is an actively evolving research codebase. It is practical and usable, but still oriented toward iterative strategy development rather than a fully packaged production platform.
 
-- 更多成交撮合规则
-- 更多因子与策略模板
-- 配置校验与参数面板
-- 测试用例和样例数据说明
+Likely next improvements include:
+
+- more execution models
+- more factor templates
+- better config validation
+- sample datasets and tests
