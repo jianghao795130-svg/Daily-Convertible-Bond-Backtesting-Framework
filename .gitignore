@@ -1,0 +1,16 @@
+.idea/
+__pycache__/
+*.py[cod]
+
+data/
+program/data/
+
+*.pkl
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+.DS_Store
+Thumbs.db
